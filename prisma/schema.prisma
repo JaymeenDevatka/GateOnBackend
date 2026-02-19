@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  Admin
+  EventManager
+  Volunteer
+  Attendee
+}
+
+enum EventStatus {
+  draft
+  published
+  cancelled
+}
+
+enum PromoType {
+  flat
+  percent
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  cancelled
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String   @unique
+  password  String
+  role      Role     @default(Attendee)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events   Event[]
+  bookings Booking[]
+}
+
+model Event {
+  id          Int            @id @default(autoincrement())
+  title       String
+  description String
+  date        DateTime
+  location    String?
+  venue       String?
+  venueType   String?
+  category    String?
+  sportType   String?
+  trending    Boolean        @default(false)
+  rating      Float          @default(0)
+  status      EventStatus    @default(published)
+  price       Int            @default(0)
+  ownerId     String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  owner    User?    @relation(fields: [ownerId], references: [id])
+  tickets  Ticket[]
+  bookings Booking[]
+}
+
+model Ticket {
+  id        Int      @id @default(autoincrement())
+  eventId   Int
+  name      String
+  price     Int
+  capacity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event    Event    @relation(fields: [eventId], references: [id])
+  bookings Booking[]
+}
+
+model PromoCode {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique
+  type      PromoType
+  value     Int
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bookings Booking[]
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  ticketCode    String        @unique
+  userId        String?
+  eventId       Int
+  ticketId      Int
+  quantity      Int
+  attendeeName  String
+  attendeeEmail String
+  attendeePhone String?
+  delivery      String
+  unitPrice     Int
+  subtotal      Int
+  discount      Int
+  groupDiscount Int
+  total         Int
+  promoCodeId   Int?
+  status        BookingStatus @default(confirmed)
+  checkedInAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user   User?     @relation(fields: [userId], references: [id])
+  event  Event     @relation(fields: [eventId], references: [id])
+  ticket Ticket    @relation(fields: [ticketId], references: [id])
+  promo  PromoCode? @relation(fields: [promoCodeId], references: [id])
+}
+
