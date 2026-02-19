@@ -213,10 +213,38 @@ export async function updateEvent(req, res, next) {
         ? Math.min(...normalizedTickets.map((t) => t.price))
         : Number(data.price) ?? existing.price;
 
-    // Delete existing tickets and create new ones
-    await prisma.ticket.deleteMany({
-      where: { eventId: id },
-    });
+    // Safe ticket sync: only delete tickets that have no bookings referencing them.
+    // Tickets with bookings are updated in-place to preserve the FK constraint.
+    const bookedTicketIds = (
+      await prisma.booking.findMany({
+        where: { ticketId: { in: existing.tickets.map((t) => t.id) } },
+        select: { ticketId: true },
+        distinct: ["ticketId"],
+      })
+    ).map((b) => b.ticketId);
+
+    const unbookedTicketIds = existing.tickets
+      .filter((t) => !bookedTicketIds.includes(t.id))
+      .map((t) => t.id);
+
+    // Delete only tickets that have no bookings
+    if (unbookedTicketIds.length > 0) {
+      await prisma.ticket.deleteMany({ where: { id: { in: unbookedTicketIds } } });
+    }
+
+    // Update booked tickets in-place (use first normalizedTicket as template if available)
+    for (let i = 0; i < bookedTicketIds.length; i++) {
+      const template = normalizedTickets[i] ?? normalizedTickets[normalizedTickets.length - 1];
+      if (template) {
+        await prisma.ticket.update({
+          where: { id: bookedTicketIds[i] },
+          data: { name: template.name, price: template.price, capacity: template.capacity },
+        });
+      }
+    }
+
+    // Create brand-new tickets for any extra ones beyond booked count
+    const newTickets = normalizedTickets.slice(bookedTicketIds.length);
 
     const updated = await prisma.event.update({
       where: { id },
@@ -233,9 +261,7 @@ export async function updateEvent(req, res, next) {
         rating: data.rating !== undefined ? Number(data.rating) : existing.rating,
         status: data.status ?? existing.status,
         price: minTicketPrice,
-        tickets: {
-          create: normalizedTickets,
-        },
+        tickets: newTickets.length > 0 ? { create: newTickets } : undefined,
       },
       include: { tickets: true },
     });
