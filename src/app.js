@@ -14,6 +14,20 @@ app.use(
     origin: "*",
   }),
 );
+import session from "express-session";
+import passport from "passport";
+import "./config/passport.js";
+
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "keyboard cat",
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+app.use(passport.initialize());
+app.use(passport.session());
+
 app.use(express.json());
 
 app.get("/health", (req, res) => {

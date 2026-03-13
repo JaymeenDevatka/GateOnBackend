@@ -1,5 +1,6 @@
 import prisma from "../config/prismaClient.js";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 /**
  * POST /api/auth/signup
@@ -87,5 +88,32 @@ export async function login(req, res, next) {
     res.json({ user: safeUser });
   } catch (err) {
     next(err);
+  }
+}
+
+/**
+ * GET /api/auth/google/callback
+ * Handles Google OAuth callback.
+ * Redirects to frontend with JWT token.
+ */
+export async function googleCallback(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.redirect("http://localhost:5173/login?error=auth_failed");
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN }
+    );
+
+    // Redirect to frontend with token
+    res.redirect(`http://localhost:5173/auth/callback?token=${token}`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("Google auth error:", err);
+    res.redirect("http://localhost:5173/login?error=server_error");
   }
 }
