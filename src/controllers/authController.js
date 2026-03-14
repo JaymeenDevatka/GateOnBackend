@@ -55,7 +55,13 @@ export async function signup(req, res, next) {
  * POST /api/auth/login
  * Body: { email, password }
  * Finds user by email, verifies password, and returns user.
+ * Special: auto-seeds the admin account on first login with hardcoded credentials.
  */
+
+// Hardcoded admin credentials (dev-only)
+const ADMIN_EMAIL = "admin@gmail.com";
+const ADMIN_PASSWORD = "admin@123";
+
 export async function login(req, res, next) {
   try {
     const { email, password } = req.body || {};
@@ -66,6 +72,25 @@ export async function login(req, res, next) {
       return res.status(400).json({ message: "Password is required" });
     }
     const trimmedEmail = String(email).trim().toLowerCase();
+
+    // Auto-seed admin account on first login attempt
+    if (trimmedEmail === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+      let adminUser = await prisma.user.findUnique({
+        where: { email: ADMIN_EMAIL },
+      });
+      if (!adminUser) {
+        const hashedAdminPw = await bcrypt.hash(ADMIN_PASSWORD, 10);
+        adminUser = await prisma.user.create({
+          data: {
+            name: "System Admin",
+            email: ADMIN_EMAIL,
+            password: hashedAdminPw,
+            role: "Admin",
+            status: "active",
+          },
+        });
+      }
+    }
 
     const user = await prisma.user.findUnique({
       where: { email: trimmedEmail },
@@ -79,11 +104,20 @@ export async function login(req, res, next) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
+    // Block banned/suspended users
+    if (user.status === "banned") {
+      return res.status(403).json({ message: "Your account has been banned. Contact support for assistance." });
+    }
+    if (user.status === "suspended") {
+      return res.status(403).json({ message: "Your account has been suspended. Contact support for assistance." });
+    }
+
     const safeUser = {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
+      status: user.status,
     };
     res.json({ user: safeUser });
   } catch (err) {
