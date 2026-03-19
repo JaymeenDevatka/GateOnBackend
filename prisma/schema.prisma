@@ -46,22 +46,24 @@ model User {
 }
 
 model Event {
-  id          Int            @id @default(autoincrement())
-  title       String
-  description String
-  date        DateTime
-  location    String?
-  venue       String?
-  venueType   String?
-  category    String?
-  sportType   String?
-  trending    Boolean        @default(false)
-  rating      Float          @default(0)
-  status      EventStatus    @default(published)
-  price       Int            @default(0)
-  ownerId     String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id                  Int            @id @default(autoincrement())
+  title               String
+  description         String
+  date                DateTime
+  location            String?
+  venue               String?
+  venueType           String?
+  category            String?
+  sportType           String?
+  trending            Boolean        @default(false)
+  rating              Float          @default(0)
+  status              EventStatus    @default(published)
+  price               Int            @default(0)
+  ownerId             String?
+  participationType   String         @default("solo")
+  maxTeamSize         Int            @default(1)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   owner    User?    @relation(fields: [ownerId], references: [id])
   tickets  Ticket[]
@@ -112,6 +114,9 @@ model Booking {
   promoCodeId   Int?
   status        BookingStatus @default(confirmed)
   checkedInAt   DateTime?
+  teamName      String?
+  teamSize      Int           @default(1)
+  teamMembers   Json?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 

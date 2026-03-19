@@ -22,6 +22,8 @@ function mapEventToApi(event) {
     status: event.status,
     ownerId: event.ownerId,
     price: event.price,
+    participationType: event.participationType ?? "solo",
+    maxTeamSize: event.maxTeamSize ?? 1,
     tickets: (event.tickets || []).map((t) => ({
       id: t.id,
       name: t.name,
@@ -155,6 +157,8 @@ export async function createEvent(req, res, next) {
         status: data.status || "published",
         ownerId,
         price: minTicketPrice,
+        participationType: data.participationType || "solo",
+        maxTeamSize: data.participationType === "team" ? Math.max(2, Number(data.maxTeamSize) || 2) : 1,
         tickets: {
           create: normalizedTickets,
         },
@@ -261,6 +265,10 @@ export async function updateEvent(req, res, next) {
         rating: data.rating !== undefined ? Number(data.rating) : existing.rating,
         status: data.status ?? existing.status,
         price: minTicketPrice,
+        participationType: data.participationType ?? existing.participationType,
+        maxTeamSize: (data.participationType ?? existing.participationType) === "team"
+          ? Math.max(2, Number(data.maxTeamSize ?? existing.maxTeamSize) || 2)
+          : 1,
         tickets: newTickets.length > 0 ? { create: newTickets } : undefined,
       },
       include: { tickets: true },
