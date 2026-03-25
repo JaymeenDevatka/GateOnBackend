@@ -7,6 +7,7 @@ import bookingRoutes from "./routes/bookingRoutes.js";
 import promoRoutes from "./routes/promoRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/events", eventRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/promos", promoRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // Global error handler
 // eslint-disable-next-line no-unused-vars

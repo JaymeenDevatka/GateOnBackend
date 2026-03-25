@@ -1,4 +1,10 @@
 import prisma from "../config/prismaClient.js";
+import Razorpay from "razorpay";
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
 /** Middleware: verify the caller is an Admin via X-User-Id header */
 export async function requireAdmin(req, res, next) {
@@ -259,6 +265,192 @@ export async function getAnalytics(req, res, next) {
         bookings: e._count.bookings,
       })),
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/admin/payments
+ * Lists all payments with event, organizer, and booking info.
+ * Supports ?status= filter (pending|paid|failed|refunded|distributed)
+ */
+export async function listAllPayments(req, res, next) {
+  try {
+    const where = {};
+    if (req.query.status) {
+      where.status = req.query.status;
+    }
+
+    const payments = await prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        event: { select: { id: true, title: true } },
+        organizer: { select: { id: true, name: true, email: true } },
+        booking: {
+          select: {
+            id: true,
+            ticketCode: true,
+            attendeeName: true,
+            attendeeEmail: true,
+            total: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    // Add human-readable amount (convert paise → rupees)
+    const items = payments.map((p) => ({
+      ...p,
+      amountRupees: p.amount / 100,
+      distributedAmountRupees: p.distributedAmount ? p.distributedAmount / 100 : null,
+    }));
+
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/admin/payments/summary
+ * Per-organizer revenue summary (for the "distribute" dashboard).
+ * Returns total collected, total distributed, and pending amount per organizer.
+ */
+export async function getPaymentSummary(req, res, next) {
+  try {
+    // Aggregate by organizer using raw query for efficiency
+    const rows = await prisma.$queryRaw`
+      SELECT
+        p."organizerId",
+        u.name AS "organizerName",
+        u.email AS "organizerEmail",
+        COUNT(*)::int AS "paymentCount",
+        COALESCE(SUM(CASE WHEN p.status = 'paid' OR p.status = 'distributed' THEN p.amount ELSE 0 END), 0)::int AS "totalCollectedPaise",
+        COALESCE(SUM(CASE WHEN p.status = 'distributed' THEN p."distributedAmount" ELSE 0 END), 0)::int AS "totalDistributedPaise"
+      FROM "Payment" p
+      LEFT JOIN "User" u ON u.id = p."organizerId"
+      WHERE p.status IN ('paid', 'distributed')
+      GROUP BY p."organizerId", u.name, u.email
+      ORDER BY "totalCollectedPaise" DESC
+    `;
+
+    const summary = rows.map((r) => ({
+      organizerId: r.organizerId,
+      organizerName: r.organizerName || "Unknown / Platform Event",
+      organizerEmail: r.organizerEmail || "-",
+      paymentCount: r.paymentCount,
+      totalCollected: r.totalCollectedPaise / 100,
+      totalDistributed: r.totalDistributedPaise / 100,
+      pendingDistribution: (r.totalCollectedPaise - r.totalDistributedPaise) / 100,
+    }));
+
+    res.json({ summary });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/admin/payments/:id/distribute
+ * Records that the admin has manually transferred a share to the organizer.
+ * This only records the distribution — the actual bank transfer is done
+ * outside the platform (Razorpay dashboard, NEFT, UPI, etc.)
+ *
+ * Body: { amount: number (in rupees), note: string }
+ */
+export async function markDistributed(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { amount, note } = req.body || {};
+
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ message: "amount (in rupees) is required" });
+    }
+
+    const payment = await prisma.payment.findUnique({ where: { id } });
+    if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+    if (payment.status !== "paid") {
+      return res.status(400).json({ message: "Only 'paid' payments can be marked distributed" });
+    }
+
+    const updated = await prisma.payment.update({
+      where: { id },
+      data: {
+        status: "distributed",
+        distributedAmount: Math.round(Number(amount) * 100), // store in paise
+        distributedAt: new Date(),
+        distributionNote: note ? String(note).trim() : null,
+      },
+      include: {
+        event: { select: { id: true, title: true } },
+        organizer: { select: { id: true, name: true, email: true } },
+        booking: { select: { id: true, ticketCode: true } },
+      },
+    });
+
+    res.json({
+      ...updated,
+      amountRupees: updated.amount / 100,
+      distributedAmountRupees: updated.distributedAmount / 100,
+    });
+  } catch (err) {
+    if (err.code === "P2025") return res.status(404).json({ message: "Payment not found" });
+    next(err);
+  }
+}
+
+/**
+ * POST /api/admin/payments/:id/refund
+ * Issues a full refund via Razorpay for a paid booking.
+ * Marks the Payment as 'refunded' and the linked Booking as 'cancelled'.
+ */
+export async function refundPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const payment = await prisma.payment.findUnique({
+      where: { id },
+      include: { booking: true },
+    });
+    if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+    if (payment.status !== "paid") {
+      return res.status(400).json({ message: "Only 'paid' payments can be refunded" });
+    }
+
+    if (!payment.razorpayPaymentId) {
+      return res.status(400).json({ message: "No Razorpay payment ID found – cannot issue refund" });
+    }
+
+    // Issue full refund via Razorpay API
+    await razorpay.payments.refund(payment.razorpayPaymentId, {
+      amount: payment.amount, // full refund
+      notes: { reason: "Admin initiated refund", paymentDbId: id },
+    });
+
+    // Update records in a transaction
+    const updates = [
+      prisma.payment.update({
+        where: { id },
+        data: { status: "refunded" },
+      }),
+    ];
+    if (payment.booking) {
+      updates.push(
+        prisma.booking.update({
+          where: { id: payment.booking.id },
+          data: { status: "cancelled" },
+        })
+      );
+    }
+
+    await prisma.$transaction(updates);
+
+    res.json({ message: "Refund issued successfully", paymentId: id });
   } catch (err) {
     next(err);
   }

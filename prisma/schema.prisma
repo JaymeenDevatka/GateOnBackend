@@ -31,6 +31,15 @@ enum BookingStatus {
   cancelled
 }
 
+// NEW: tracks every Razorpay payment (all money lands in admin's account)
+enum PaymentStatus {
+  pending      // order created, user hasn't paid yet
+  paid         // payment verified & booking confirmed
+  failed       // payment failed or signature mismatch
+  refunded     // admin issued a refund via Razorpay
+  distributed  // admin has transferred share to organizer
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String?
@@ -41,33 +50,35 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  events   Event[]
-  bookings Booking[]
+  events             Event[]
+  bookings           Booking[]
+  organizerPayments  Payment[]  @relation("OrganizerPayments")
 }
 
 model Event {
-  id                  Int            @id @default(autoincrement())
-  title               String
-  description         String
-  date                DateTime
-  location            String?
-  venue               String?
-  venueType           String?
-  category            String?
-  sportType           String?
-  trending            Boolean        @default(false)
-  rating              Float          @default(0)
-  status              EventStatus    @default(published)
-  price               Int            @default(0)
-  ownerId             String?
-  participationType   String         @default("solo")
-  maxTeamSize         Int            @default(1)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  id                Int            @id @default(autoincrement())
+  title             String
+  description       String
+  date              DateTime
+  location          String?
+  venue             String?
+  venueType         String?
+  category          String?
+  sportType         String?
+  trending          Boolean        @default(false)
+  rating            Float          @default(0)
+  status            EventStatus    @default(published)
+  price             Int            @default(0)
+  ownerId           String?
+  participationType String         @default("solo")
+  maxTeamSize       Int            @default(1)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  owner    User?    @relation(fields: [ownerId], references: [id])
+  owner    User?     @relation(fields: [ownerId], references: [id])
   tickets  Ticket[]
   bookings Booking[]
+  payments Payment[]
 }
 
 model Ticket {
@@ -95,6 +106,33 @@ model PromoCode {
   bookings Booking[]
 }
 
+// NEW: one Payment record per Razorpay transaction
+model Payment {
+  id                  String        @id @default(cuid())
+  razorpayOrderId     String        @unique          // from Razorpay order creation
+  razorpayPaymentId   String?       @unique          // from Razorpay after user pays
+  razorpaySignature   String?                        // HMAC signature from Razorpay
+  amount              Int                            // in paise (₹1 = 100 paise)
+  currency            String        @default("INR")
+  status              PaymentStatus @default(pending)
+
+  // links to the event so admin can see per-organizer revenue
+  eventId             Int
+  organizerId         String?                        // event's ownerId at time of payment
+
+  // admin distribution tracking
+  distributedAt       DateTime?
+  distributedAmount   Int?                           // how much the admin sent to organizer (paise)
+  distributionNote    String?                        // e.g. "Bank transfer ref #12345"
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  booking   Booking?  @relation("BookingPayment")
+  event     Event     @relation(fields: [eventId], references: [id])
+  organizer User?     @relation("OrganizerPayments", fields: [organizerId], references: [id])
+}
+
 model Booking {
   id            String        @id @default(cuid())
   ticketCode    String        @unique
@@ -117,12 +155,16 @@ model Booking {
   teamName      String?
   teamSize      Int           @default(1)
   teamMembers   Json?
+
+  // NEW: link to the payment that funded this booking (null for free events)
+  paymentId     String?       @unique
+
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  user   User?     @relation(fields: [userId], references: [id])
-  event  Event     @relation(fields: [eventId], references: [id])
-  ticket Ticket    @relation(fields: [ticketId], references: [id])
-  promo  PromoCode? @relation(fields: [promoCodeId], references: [id])
+  user    User?      @relation(fields: [userId], references: [id])
+  event   Event      @relation(fields: [eventId], references: [id])
+  ticket  Ticket     @relation(fields: [ticketId], references: [id])
+  promo   PromoCode? @relation(fields: [promoCodeId], references: [id])
+  payment Payment?   @relation("BookingPayment", fields: [paymentId], references: [id])
 }
-
