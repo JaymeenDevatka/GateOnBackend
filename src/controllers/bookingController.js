@@ -151,9 +151,9 @@ export async function createBooking(req, res, next) {
     });
 
     const fullName =
-      `${attendee?.name || attendee?.firstName || ""} ${
-        attendee?.lastName || ""
-      }`.trim() || "Attendee";
+      (attendee?.name ||
+        `${attendee?.firstName || ""} ${attendee?.lastName || ""}`.trim()) ||
+      "Attendee";
 
     let promo = null;
     if (promoCode) {

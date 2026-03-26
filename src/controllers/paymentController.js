@@ -1,14 +1,14 @@
 /**
- * paymentController.js
- *
- * All event payments flow to the single admin Razorpay account.
- * Admin then distributes to organizers manually via the admin dashboard.
- *
- * Flow:
- *   1. POST /api/payments/create-order  → creates a Razorpay order + a pending Payment row
- *   2. Frontend opens Razorpay modal    → user pays (money hits admin's Razorpay account)
- *   3. POST /api/payments/verify        → verifies HMAC signature, creates Booking, marks Payment paid
- */
+* paymentController.js
+*
+* All event payments flow to the single admin Razorpay account.
+* Admin then distributes to organizers manually via the admin dashboard.
+*
+* Flow:
+*   1. POST /api/payments/create-order  → creates a Razorpay order + a pending Payment row
+*   2. Frontend opens Razorpay modal    → user pays (money hits admin's Razorpay account)
+*   3. POST /api/payments/verify        → verifies HMAC signature, creates Booking, marks Payment paid
+*/
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
@@ -276,7 +276,7 @@ export async function verifyPayment(req, res, next) {
       promo = await prisma.promoCode.findFirst({ where: { code: normalizedCode, active: true } });
     }
 
-    const fullName = `${attendee?.name || attendee?.firstName || ""} ${attendee?.lastName || ""}`.trim() || "Attendee";
+    const fullName = (attendee?.name || `${attendee?.firstName || ""} ${attendee?.lastName || ""}`.trim()) || "Attendee";
     const ticketCode = await ensureUniqueTicketCode(eventIdNum);
 
     // ── 4. Create Booking + mark Payment paid (in a transaction) ───────────
@@ -305,10 +305,10 @@ export async function verifyPayment(req, res, next) {
           teamMembers:
             isTeamEvent && Array.isArray(teamMembers)
               ? teamMembers.map((m) => ({
-                  name: String(m.name).trim(),
-                  email: String(m.email).trim(),
-                  phone: m.phone ? String(m.phone).trim() : "",
-                }))
+                name: String(m.name).trim(),
+                email: String(m.email).trim(),
+                phone: m.phone ? String(m.phone).trim() : "",
+              }))
               : null,
         },
         include: { promo: true },
@@ -395,7 +395,7 @@ export async function freeBooking(req, res, next) {
       promo = await prisma.promoCode.findFirst({ where: { code, active: true } });
     }
 
-    const fullName = `${attendee?.name || attendee?.firstName || ""} ${attendee?.lastName || ""}`.trim() || "Attendee";
+    const fullName = (attendee?.name || `${attendee?.firstName || ""} ${attendee?.lastName || ""}`.trim()) || "Attendee";
     const ticketCode = await ensureUniqueTicketCode(eventIdNum);
 
     const created = await prisma.booking.create({
